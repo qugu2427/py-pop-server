@@ -104,5 +104,5 @@ def start_example_server():
     aio.run(listen(cfg))
 
 
-if __name__ == "main":
+if __name__ == "__main__":
     start_example_server()

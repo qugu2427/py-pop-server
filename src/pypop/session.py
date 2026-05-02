@@ -225,7 +225,7 @@ class PopSession:  # pylint: disable=too-few-public-methods,too-many-instance-at
                         break
                 await self._write_bytes(out_chunk)
 
-    async def _handle_cmd( # pylint: disable=too-many-branches
+    async def _handle_cmd(  # pylint: disable=too-many-branches
         self, cmd: PopCmd
     ) -> bool:
         match cmd:
