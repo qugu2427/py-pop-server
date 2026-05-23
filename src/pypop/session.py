@@ -131,6 +131,7 @@ class PopSession:  # pylint: disable=too-few-public-methods,too-many-instance-at
             for i, item in enumerate(self.mailbox_list):
                 if i + 1 == item_id:
                     await self._write_string(f"+OK {i+1} {item.size}\r\n")
+                    return
             await self._write_bytes(RES_NO_SUCH_ITEM)
 
     async def _handle_uidl_cmd(self, item_id: PositiveInt | None) -> None:
@@ -145,6 +146,7 @@ class PopSession:  # pylint: disable=too-few-public-methods,too-many-instance-at
             for i, item in enumerate(self.mailbox_list):
                 if i + 1 == item_id:
                     await self._write_string(f"+OK {i+1} {item.uid}\r\n")
+                    return
             await self._write_bytes(RES_NO_SUCH_ITEM)
 
     async def _handle_dele_cmd(self, item_id: PositiveInt) -> None:
@@ -272,7 +274,7 @@ class PopSession:  # pylint: disable=too-few-public-methods,too-many-instance-at
             raise exc
 
     async def handle_chunk(self, chunk: bytes) -> bool:
-        """Handles a chunk (.i.e arbitary fraction or number of lines)."""
+        """Handles a chunk (.i.e arbitrary fraction or number of lines)."""
 
         lines = chunk.split(b"\r\n")
         lines[0] = self.last_chunk_part + lines[0]

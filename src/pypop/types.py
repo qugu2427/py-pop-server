@@ -1,4 +1,4 @@
-"""Contains externally usefull types for pypop."""
+"""Contains externally useful types for pypop."""
 
 import typing as t
 

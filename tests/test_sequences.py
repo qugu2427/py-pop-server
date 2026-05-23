@@ -120,7 +120,7 @@ async def try_sequence(
     sequence: t.Sequence[t.Tuple[bytes, bytes] | t.Tuple[bytes, bytes, int]],
 ) -> str | None:
     """
-    Try a sequnce of commands against a test server
+    Try a sequence of commands against a test server
     """
 
     reader, writer = await aio.open_connection(HOST, PORT)

@@ -109,7 +109,7 @@ PopCmd = t.Annotated[
 def parse_msg_to_cmd(  # pylint: disable=too-many-return-statements,too-many-branches
     msg: bytes,
 ) -> PopCmd:
-    """Trys to parse a message (i.e line) to a Pop command type."""
+    """Tries to parse a message (i.e line) to a Pop command type."""
 
     if msg == b"":
         raise PopError(RES_EMPTY_LINE)

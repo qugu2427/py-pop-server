@@ -26,7 +26,7 @@ class DebugWriter(aio.StreamWriter):
             loop=original._loop,
         )
 
-    def write(self, data: bytes):
+    def write(self, data):
         self.debug_fn(f"{self.addr} <= {data!r}")
         return self.original.write(data)
 
