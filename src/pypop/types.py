@@ -11,9 +11,11 @@ LOGIN_DELAY = 5
 RES_ALREADY_AUTHENTICATED = b"-ERR Already authenticated\r\n"
 RES_AUTH_REQUIRED = b"-ERR Authentication required\r\n"
 RES_AUTHENTICATED = b"+OK Authenticated\r\n"
-RES_CAPA = f"+OK\r\nIMPLEMENTATION pypop\r\n \
-LOGIN-DELAY {LOGIN_DELAY*1000}\r\n \
-PIPELINING\r\nTOP\r\nUIDL\r\nUSER\r\n.\r\n".encode()
+RES_CAPA = (
+    f"+OK\r\nIMPLEMENTATION pypop\r\n"
+    f"LOGIN-DELAY {LOGIN_DELAY*1000}\r\n"
+    f"PIPELINING\r\nTOP\r\nUIDL\r\nUSER\r\n.\r\n"
+).encode()
 RES_EMPTY_LINE = b"+OK Empty line\r\n"
 RES_GOODBYE = b"+OK Goodbye\r\n"
 RES_INVALID_CREDS = b"-ERR Invalid credentials\r\n"
