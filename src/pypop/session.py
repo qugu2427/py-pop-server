@@ -48,16 +48,15 @@ from pypop.types import (
 class PopSession:  # pylint: disable=too-few-public-methods,too-many-instance-attributes
     """Pop client session"""
 
-    username: str | None = None
-    is_authenticated: bool = False
-    deleted_uids: t.List[str] = []
-    mailbox_list: t.Sequence[PopListItem] | None = None
-    last_chunk_part: bytes = b""
-    last_login_timestamp: int = 0
-
     def __init__(self, writer, cfg: PopConfig):
         self.writer = writer
         self.cfg = cfg
+        self.username: str | None = None
+        self.is_authenticated: bool = False
+        self.deleted_uids: t.List[str] = []
+        self.mailbox_list: t.Sequence[PopListItem] | None = None
+        self.last_chunk_part: bytes = b""
+        self.last_login_timestamp: int = 0
 
     async def _load_mailbox_list(self):
         if self.mailbox_list is None:
@@ -92,6 +91,8 @@ class PopSession:  # pylint: disable=too-few-public-methods,too-many-instance-at
 
     async def _handle_quit_cmd(self) -> bool:
         await self._write_bytes(RES_GOODBYE)
+        if len(self.deleted_uids) > 0 and self.username is not None:
+            self.cfg.delete_items(self.username, self.deleted_uids)
         return False
 
     async def _handle_stat_cmd(self) -> None:
