@@ -24,12 +24,14 @@ from pypop.command import (
 from pypop.types import (
     BUFFER_SIZE,
     LOGIN_DELAY,
+    MAX_LINE_LENGTH,
     RES_ALREADY_AUTHENTICATED,
     RES_AUTH_REQUIRED,
     RES_AUTHENTICATED,
     RES_CAPA,
     RES_GOODBYE,
     RES_INVALID_CREDS,
+    RES_LINE_TOO_LONG,
     RES_LOGIN_DELAY,
     RES_MARK_DELETE,
     RES_NO_SUCH_ITEM,
@@ -262,6 +264,10 @@ class PopSession:  # pylint: disable=too-few-public-methods,too-many-instance-at
         return True
 
     async def _handle_line(self, line: bytes) -> bool:
+        if len(line) > MAX_LINE_LENGTH:
+            await self._write_bytes(RES_LINE_TOO_LONG)
+            return True
+
         try:
             cmd = parse_msg_to_cmd(line)
             return await self._handle_cmd(cmd)
@@ -280,6 +286,10 @@ class PopSession:  # pylint: disable=too-few-public-methods,too-many-instance-at
         lines = chunk.split(b"\r\n")
         lines[0] = self.last_chunk_part + lines[0]
         self.last_chunk_part = lines.pop()
+        if len(self.last_chunk_part) > MAX_LINE_LENGTH:
+            await self._write_bytes(RES_LINE_TOO_LONG)
+            self.last_chunk_part = b""
+            return False
         for line in lines:
             if not await self._handle_line(line):
                 return False

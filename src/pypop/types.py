@@ -5,6 +5,7 @@ import typing as t
 import pydantic as pd
 
 BUFFER_SIZE = 1024
+MAX_LINE_LENGTH = 1024
 
 LOGIN_DELAY = 5
 
@@ -20,6 +21,7 @@ RES_EMPTY_LINE = b"+OK Empty line\r\n"
 RES_GOODBYE = b"+OK Goodbye\r\n"
 RES_INVALID_CREDS = b"-ERR Invalid credentials\r\n"
 RES_LOGIN_DELAY = f"-ERR Wait {LOGIN_DELAY} seconds between attempts\r\n".encode()
+RES_LINE_TOO_LONG = b"-ERR Line too long\r\n"
 RES_MARK_DELETE = b"+OK Marked for deletion\r\n"
 RES_NO_SUCH_ITEM = b"-ERR No such item\r\n"
 RES_NO_USER = b"-ERR No user provided\r\n"

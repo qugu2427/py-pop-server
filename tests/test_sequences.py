@@ -13,12 +13,14 @@ from pypop.server import listen
 from pypop.types import (
     BUFFER_SIZE,
     LOGIN_DELAY,
+    MAX_LINE_LENGTH,
     RES_AUTH_REQUIRED,
     RES_AUTHENTICATED,
     RES_CAPA,
     RES_EMPTY_LINE,
     RES_GOODBYE,
     RES_INVALID_CREDS,
+    RES_LINE_TOO_LONG,
     RES_LOGIN_DELAY,
     RES_MARK_DELETE,
     RES_NO_SUCH_ITEM,
@@ -280,6 +282,7 @@ async def test_invalid_commands(start_test_listener):
         (b"TOP 100 100\r\n", RES_NO_SUCH_ITEM),
         (b"TOP foo bar\r\n", RES_SYNTAX_ERR),
         (b"DELE 100\r\n", RES_NO_SUCH_ITEM),
+        (b"A" * (MAX_LINE_LENGTH + 1) + b"\r\n", RES_LINE_TOO_LONG),
         (b"QUIT\r\n", RES_GOODBYE),
     ]
     result = await try_sequence(sequence)
