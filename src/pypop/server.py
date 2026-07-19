@@ -53,8 +53,16 @@ def get_client_handler(cfg: PopConfig):
             pop_session = PopSession(writer, cfg)
             writer.write(RES_READY)
             await writer.drain()
+            loop = aio.get_running_loop()
+            command_deadline = loop.time() + cfg.command_timeout
             while True:
-                data = await reader.read(BUFFER_SIZE)
+                try:
+                    data = await aio.wait_for(
+                        reader.read(BUFFER_SIZE),
+                        timeout=max(0, command_deadline - loop.time()),
+                    )
+                except TimeoutError:
+                    break
                 if not data:
                     break
                 if cfg.debug:
@@ -62,6 +70,8 @@ def get_client_handler(cfg: PopConfig):
                 keep_alive = await pop_session.handle_chunk(data)
                 if not keep_alive:
                     break
+                if not pop_session.last_chunk_part:
+                    command_deadline = loop.time() + cfg.command_timeout
         except Exception as e:
             raise e
         finally:

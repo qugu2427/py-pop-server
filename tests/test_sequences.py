@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 
-from pypop.server import listen
+from pypop.server import get_client_handler, listen
 from pypop.types import (
     BUFFER_SIZE,
     LOGIN_DELAY,
@@ -120,12 +120,13 @@ PORT = 1026
 
 async def try_sequence(
     sequence: t.Sequence[t.Tuple[bytes, bytes] | t.Tuple[bytes, bytes, int]],
+    port: int = PORT,
 ) -> str | None:
     """
     Try a sequence of commands against a test server
     """
 
-    reader, writer = await aio.open_connection(HOST, PORT)
+    reader, writer = await aio.open_connection(HOST, port)
 
     for msg in sequence:
         if msg[0] is not None:
@@ -308,6 +309,31 @@ async def test_pipelining(start_test_listener):
     ]
     result = await try_sequence(sequence)
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_command_timeout():
+    """Closes connections which do not send command data in time."""
+
+    cfg = PopConfig(
+        host=HOST,
+        port=0,
+        command_timeout=1,
+        validate_credentials=validate_credentials,
+        get_mailbox_list=get_mailbox_list,
+        get_item_reader=get_item_reader,
+        delete_items=delete_items,
+    )
+    server = await aio.start_server(get_client_handler(cfg), cfg.host, cfg.port)
+    port = server.sockets[0].getsockname()[1]
+
+    async with server:
+        sequence = [
+            (None, RES_READY),
+            (None, b"", 2),
+        ]
+        result = await try_sequence(sequence, port=port)
+        assert result is None
 
 
 @pytest.mark.asyncio

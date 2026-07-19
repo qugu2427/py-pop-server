@@ -5,6 +5,7 @@ import typing as t
 import pydantic as pd
 
 BUFFER_SIZE = 1024
+COMMAND_TIMEOUT = 300
 MAX_LINE_LENGTH = 1024
 
 LOGIN_DELAY = 5
@@ -72,6 +73,7 @@ class PopConfig(pd.BaseModel):
     Attributes:
         host: serve on host
         port: serve on port
+        command_timeout: seconds to wait for client command data
 
         validate_credentials: fn to validate credentials
         get_mailbox_list: fn to get mailbox list
@@ -84,6 +86,7 @@ class PopConfig(pd.BaseModel):
 
     host: str
     port: int
+    command_timeout: pd.PositiveFloat = COMMAND_TIMEOUT
 
     validate_credentials: t.Callable[[str, str], t.Awaitable[bool]]
     get_mailbox_list: t.Callable[[str], t.Awaitable[t.Sequence[PopListItem]]]
