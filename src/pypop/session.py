@@ -72,6 +72,8 @@ class PopSession:  # pylint: disable=too-few-public-methods,too-many-instance-at
         assert self.mailbox_list is not None
         stat = [0, 0]
         for item in self.mailbox_list:
+            if item.uid in self.deleted_uids:
+                continue
             stat[0] += 1
             stat[1] += item.size
         return (stat[0], stat[1])
@@ -79,7 +81,7 @@ class PopSession:  # pylint: disable=too-few-public-methods,too-many-instance-at
     def _get_item(self, item_id: int) -> PopListItem | None:
         assert self.mailbox_list is not None
         for i, item in enumerate(self.mailbox_list):
-            if i + 1 == item_id:
+            if i + 1 == item_id and item.uid not in self.deleted_uids:
                 return item
         return None
 
@@ -94,7 +96,7 @@ class PopSession:  # pylint: disable=too-few-public-methods,too-many-instance-at
     async def _handle_quit_cmd(self) -> bool:
         await self._write_bytes(RES_GOODBYE)
         if len(self.deleted_uids) > 0 and self.username is not None:
-            self.cfg.delete_items(self.username, self.deleted_uids)
+            await self.cfg.delete_items(self.username, self.deleted_uids)
         return False
 
     async def _handle_stat_cmd(self) -> None:
@@ -127,12 +129,16 @@ class PopSession:  # pylint: disable=too-few-public-methods,too-many-instance-at
         assert self.mailbox_list is not None
         if item_id is None:
             joined_list = "\r\n".join(
-                [f"{i+1} {item.size}" for i, item in enumerate(self.mailbox_list)]
+                [
+                    f"{i+1} {item.size}"
+                    for i, item in enumerate(self.mailbox_list)
+                    if item.uid not in self.deleted_uids
+                ]
             )
             await self._write_string(f"+OK\r\n{joined_list}\r\n.\r\n")
         else:
             for i, item in enumerate(self.mailbox_list):
-                if i + 1 == item_id:
+                if i + 1 == item_id and item.uid not in self.deleted_uids:
                     await self._write_string(f"+OK {i+1} {item.size}\r\n")
                     return
             await self._write_bytes(RES_NO_SUCH_ITEM)
@@ -142,12 +148,16 @@ class PopSession:  # pylint: disable=too-few-public-methods,too-many-instance-at
         assert self.mailbox_list is not None
         if item_id is None:
             joined_list = "\r\n".join(
-                [f"{i+1} {item.uid}" for i, item in enumerate(self.mailbox_list)]
+                [
+                    f"{i+1} {item.uid}"
+                    for i, item in enumerate(self.mailbox_list)
+                    if item.uid not in self.deleted_uids
+                ]
             )
             await self._write_string(f"+OK\r\n{joined_list}\r\n.\r\n")
         else:
             for i, item in enumerate(self.mailbox_list):
-                if i + 1 == item_id:
+                if i + 1 == item_id and item.uid not in self.deleted_uids:
                     await self._write_string(f"+OK {i+1} {item.uid}\r\n")
                     return
             await self._write_bytes(RES_NO_SUCH_ITEM)

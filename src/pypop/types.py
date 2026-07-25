@@ -91,7 +91,7 @@ class PopConfig(pd.BaseModel):
     validate_credentials: t.Callable[[str, str], t.Awaitable[bool]]
     get_mailbox_list: t.Callable[[str], t.Awaitable[t.Sequence[PopListItem]]]
     get_item_reader: t.Callable[[str, str], t.Awaitable[PopReader]]
-    delete_items: t.Callable[[str, t.Sequence[str]], t.Any]
+    delete_items: t.Callable[[str, t.Sequence[str]], t.Awaitable[None]]
 
     debug: bool = False
     debug_fn: t.Callable[[str], t.Any] = print

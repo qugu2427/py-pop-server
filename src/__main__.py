@@ -21,12 +21,14 @@ class ExampleMailReader(PopReader):  # pylint: disable=too-few-public-methods
 
     def __init__(self, path: Path):
         self.path = path
+        self.position = 0
 
     async def read(self, n: int = -1) -> bytes:
-        with open(self.path, "rb") as f:
-            while chunk := f.read(n):
-                return chunk
-        assert False
+        with open(self.path, "rb") as file:
+            file.seek(self.position)
+            chunk = file.read(n)
+            self.position += len(chunk)
+            return chunk
 
 
 async def example_validate_credentials(username: str, password: str, /) -> bool:

@@ -67,10 +67,11 @@ def get_client_handler(cfg: PopConfig):
                     break
                 if cfg.debug:
                     cfg.debug_fn(f"{addr} => {data!r}")
+                command_received = b"\r\n" in pop_session.last_chunk_part + data
                 keep_alive = await pop_session.handle_chunk(data)
                 if not keep_alive:
                     break
-                if not pop_session.last_chunk_part:
+                if command_received:
                     command_deadline = loop.time() + cfg.command_timeout
         except Exception as e:
             raise e

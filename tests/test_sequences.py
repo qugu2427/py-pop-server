@@ -47,6 +47,7 @@ How are you,\r
 \r
 Best,\r
 Bob"""]
+DELETED_ITEMS: t.List[str] = []
 
 
 class MailReader(PopReader):  # pylint: disable=too-few-public-methods
@@ -110,8 +111,7 @@ async def delete_items(
 ) -> None:
     """Test delete items"""
 
-    for uid in uids:
-        print(f"Pretending to delete {uid}")
+    DELETED_ITEMS.extend(uids)
 
 
 HOST = "0.0.0.0"
@@ -337,17 +337,60 @@ async def test_command_timeout():
 
 
 @pytest.mark.asyncio
+async def test_command_timeout_resets_after_complete_command():
+    """A partial next command gets a fresh deadline after a complete command."""
+
+    cfg = PopConfig(
+        host=HOST,
+        port=0,
+        command_timeout=0.2,
+        validate_credentials=validate_credentials,
+        get_mailbox_list=get_mailbox_list,
+        get_item_reader=get_item_reader,
+        delete_items=delete_items,
+    )
+    server = await aio.start_server(get_client_handler(cfg), cfg.host, cfg.port)
+    port = server.sockets[0].getsockname()[1]
+
+    async with server:
+        reader, writer = await aio.open_connection(HOST, port)
+        assert await reader.read(BUFFER_SIZE) == RES_READY
+        await aio.sleep(0.15)
+        writer.write(b"NOOP\r\nN")
+        await writer.drain()
+        assert await reader.read(BUFFER_SIZE) == RES_NOOP
+        await aio.sleep(0.15)
+        writer.write(b"OOP\r\n")
+        await writer.drain()
+        assert await reader.read(BUFFER_SIZE) == RES_NOOP
+        writer.close()
+        await writer.wait_closed()
+
+
+@pytest.mark.asyncio
 async def test_delete(start_test_listener):
     """Tests login and auth"""
 
     assert not start_test_listener.done()
+    DELETED_ITEMS.clear()
     sequence = [
         (None, RES_READY),
         (b"USER admin\r\n", RES_USER_ACCEPTED),
         (b"PASS password\r\n", RES_AUTHENTICATED),
         (b"DELE 1\r\n", RES_MARK_DELETE),
+        (b"STAT\r\n", b"+OK 0 0\r\n"),
+        (b"LIST\r\n", b"+OK\r\n\r\n.\r\n"),
+        (b"LIST 1\r\n", RES_NO_SUCH_ITEM),
+        (b"UIDL\r\n", b"+OK\r\n\r\n.\r\n"),
+        (b"UIDL 1\r\n", RES_NO_SUCH_ITEM),
+        (b"RETR 1\r\n", RES_NO_SUCH_ITEM),
+        (b"TOP 1 1\r\n", RES_NO_SUCH_ITEM),
+        (b"DELE 1\r\n", RES_NO_SUCH_ITEM),
         (b"RSET\r\n", RES_RESET),
+        (b"STAT\r\n", f"+OK 1 {len(TEST_EMAILS[0])}\r\n".encode()),
+        (b"DELE 1\r\n", RES_MARK_DELETE),
         (b"QUIT\r\n", RES_GOODBYE),
     ]
     result = await try_sequence(sequence)
     assert result is None
+    assert DELETED_ITEMS == [get_uid(TEST_EMAILS[0])]
