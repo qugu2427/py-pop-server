@@ -15,11 +15,12 @@ RES_AUTH_REQUIRED = b"-ERR Authentication required\r\n"
 RES_AUTHENTICATED = b"+OK Authenticated\r\n"
 RES_CAPA = (
     f"+OK\r\nIMPLEMENTATION pypop\r\n"
-    f"LOGIN-DELAY {LOGIN_DELAY*1000}\r\n"
+    f"LOGIN-DELAY {LOGIN_DELAY}\r\n"
     f"PIPELINING\r\nTOP\r\nUIDL\r\nUSER\r\n.\r\n"
 ).encode()
-RES_EMPTY_LINE = b"+OK Empty line\r\n"
+RES_EMPTY_LINE = b"-ERR Empty line\r\n"
 RES_GOODBYE = b"+OK Goodbye\r\n"
+RES_INTERNAL_ERROR = b"-ERR Internal server error\r\n"
 RES_INVALID_CREDS = b"-ERR Invalid credentials\r\n"
 RES_LOGIN_DELAY = f"-ERR Wait {LOGIN_DELAY} seconds between attempts\r\n".encode()
 RES_LINE_TOO_LONG = b"-ERR Line too long\r\n"
@@ -31,6 +32,7 @@ RES_READY = b"+OK POP3 Server ready\r\n"
 RES_RESET = b"+OK Session reset\r\n"
 RES_SYNTAX_ERR = b"-ERR Syntax error\r\n"
 RES_UNHANDLED_CMD = b"-ERR Unhandled command\r\n"
+RES_UPDATE_FAILED = b"-ERR Unable to update mailbox\r\n"
 RES_USER_ACCEPTED = b"+OK User accepted\r\n"
 
 

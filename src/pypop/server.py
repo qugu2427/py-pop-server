@@ -34,6 +34,8 @@ class DebugWriter(aio.StreamWriter):
 def get_client_handler(cfg: PopConfig):
     """Get client handler function given cfg"""
 
+    login_attempts: dict[str, float] = {}
+
     async def handle_client(
         reader: aio.StreamReader,
         writer: aio.StreamWriter,
@@ -50,7 +52,7 @@ def get_client_handler(cfg: PopConfig):
             )
             cfg.debug_fn(f"{addr} == connection started")
         try:
-            pop_session = PopSession(writer, cfg)
+            pop_session = PopSession(writer, cfg, login_attempts)
             writer.write(RES_READY)
             await writer.drain()
             loop = aio.get_running_loop()

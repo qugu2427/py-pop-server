@@ -1,6 +1,7 @@
 """Functions to manage POP3 client session"""
 
 import time
+import tempfile
 import typing as t
 
 from pydantic import PositiveInt, ValidationError
@@ -30,6 +31,7 @@ from pypop.types import (
     RES_AUTHENTICATED,
     RES_CAPA,
     RES_GOODBYE,
+    RES_INTERNAL_ERROR,
     RES_INVALID_CREDS,
     RES_LINE_TOO_LONG,
     RES_LOGIN_DELAY,
@@ -40,6 +42,7 @@ from pypop.types import (
     RES_RESET,
     RES_SYNTAX_ERR,
     RES_UNHANDLED_CMD,
+    RES_UPDATE_FAILED,
     RES_USER_ACCEPTED,
     PopConfig,
     PopError,
@@ -50,15 +53,20 @@ from pypop.types import (
 class PopSession:  # pylint: disable=too-few-public-methods,too-many-instance-attributes
     """Pop client session"""
 
-    def __init__(self, writer, cfg: PopConfig):
+    def __init__(
+        self,
+        writer,
+        cfg: PopConfig,
+        login_attempts: dict[str, float] | None = None,
+    ):
         self.writer = writer
         self.cfg = cfg
+        self.login_attempts = login_attempts if login_attempts is not None else {}
         self.username: str | None = None
         self.is_authenticated: bool = False
         self.deleted_uids: t.List[str] = []
         self.mailbox_list: t.Sequence[PopListItem] | None = None
         self.last_chunk_part: bytes = b""
-        self.last_login_timestamp: int = 0
 
     async def _load_mailbox_list(self):
         if self.mailbox_list is None:
@@ -93,10 +101,60 @@ class PopSession:  # pylint: disable=too-few-public-methods,too-many-instance-at
         self.writer.write(text)
         await self.writer.drain()
 
+    async def _iter_message_lines(self, reader) -> t.AsyncIterator[bytes]:
+        """Yield message lines while accepting CRLF, CR, or LF input endings."""
+
+        line = bytearray()
+        pending_cr = False
+        while True:
+            chunk = await reader.read(BUFFER_SIZE)
+            if not chunk:
+                break
+            for byte in chunk:
+                if pending_cr:
+                    yield bytes(line)
+                    line.clear()
+                    pending_cr = False
+                    if byte == 10:
+                        continue
+                if byte == 13:
+                    pending_cr = True
+                elif byte == 10:
+                    yield bytes(line)
+                    line.clear()
+                else:
+                    line.append(byte)
+        if pending_cr or line:
+            yield bytes(line)
+
+    @staticmethod
+    def _encode_message_line(line: bytes) -> bytes:
+        """Encode one dot-transparent POP3 multiline-response line."""
+
+        if line.startswith(b"."):
+            line = b"." + line
+        return line + b"\r\n"
+
+    async def _write_staged_response(
+        self, response: tempfile.SpooledTemporaryFile[bytes]
+    ) -> None:
+        """Write a complete multiline response after it has been staged."""
+
+        await self._write_bytes(b"+OK\r\n")
+        response.seek(0)
+        while chunk := response.read(BUFFER_SIZE):
+            await self._write_bytes(chunk)
+
     async def _handle_quit_cmd(self) -> bool:
-        await self._write_bytes(RES_GOODBYE)
         if len(self.deleted_uids) > 0 and self.username is not None:
-            await self.cfg.delete_items(self.username, self.deleted_uids)
+            try:
+                await self.cfg.delete_items(self.username, self.deleted_uids)
+            except PopError:
+                raise
+            except Exception:
+                await self._write_bytes(RES_UPDATE_FAILED)
+                return False
+        await self._write_bytes(RES_GOODBYE)
         return False
 
     async def _handle_stat_cmd(self) -> None:
@@ -111,18 +169,12 @@ class PopSession:  # pylint: disable=too-few-public-methods,too-many-instance-at
         if item is None:
             await self._write_bytes(RES_NO_SUCH_ITEM)
         else:
-            keep_reading = True
-            await self._write_bytes(b"+OK\r\n")
             reader = await self.cfg.get_item_reader(self.username, item.uid)
-            while keep_reading:
-                chunk = await reader.read(BUFFER_SIZE)
-                if len(chunk) < BUFFER_SIZE:
-                    keep_reading = False
-                    if not chunk.endswith(b"\r\n"):
-                        chunk += b"\r\n"
-                    if not chunk.endswith(b".\r\n"):
-                        chunk += b".\r\n"
-                await self._write_bytes(chunk)
+            with tempfile.SpooledTemporaryFile(max_size=BUFFER_SIZE * 1024) as response:
+                async for line in self._iter_message_lines(reader):
+                    response.write(self._encode_message_line(line))
+                response.write(b".\r\n")
+                await self._write_staged_response(response)
 
     async def _handle_list_cmd(self, item_id: PositiveInt | None) -> None:
         self._assert_authenticated()
@@ -130,7 +182,7 @@ class PopSession:  # pylint: disable=too-few-public-methods,too-many-instance-at
         if item_id is None:
             joined_list = "\r\n".join(
                 [
-                    f"{i+1} {item.size}"
+                    f"{i + 1} {item.size}"
                     for i, item in enumerate(self.mailbox_list)
                     if item.uid not in self.deleted_uids
                 ]
@@ -139,7 +191,7 @@ class PopSession:  # pylint: disable=too-few-public-methods,too-many-instance-at
         else:
             for i, item in enumerate(self.mailbox_list):
                 if i + 1 == item_id and item.uid not in self.deleted_uids:
-                    await self._write_string(f"+OK {i+1} {item.size}\r\n")
+                    await self._write_string(f"+OK {i + 1} {item.size}\r\n")
                     return
             await self._write_bytes(RES_NO_SUCH_ITEM)
 
@@ -149,7 +201,7 @@ class PopSession:  # pylint: disable=too-few-public-methods,too-many-instance-at
         if item_id is None:
             joined_list = "\r\n".join(
                 [
-                    f"{i+1} {item.uid}"
+                    f"{i + 1} {item.uid}"
                     for i, item in enumerate(self.mailbox_list)
                     if item.uid not in self.deleted_uids
                 ]
@@ -158,7 +210,7 @@ class PopSession:  # pylint: disable=too-few-public-methods,too-many-instance-at
         else:
             for i, item in enumerate(self.mailbox_list):
                 if i + 1 == item_id and item.uid not in self.deleted_uids:
-                    await self._write_string(f"+OK {i+1} {item.uid}\r\n")
+                    await self._write_string(f"+OK {i + 1} {item.uid}\r\n")
                     return
             await self._write_bytes(RES_NO_SUCH_ITEM)
 
@@ -183,21 +235,30 @@ class PopSession:  # pylint: disable=too-few-public-methods,too-many-instance-at
             await self._write_bytes(RES_ALREADY_AUTHENTICATED)
         elif self.username is None:
             await self._write_bytes(RES_NO_USER)
-        elif time.time() - self.last_login_timestamp < LOGIN_DELAY:
-            print(time.time() - self.last_login_timestamp)
+        elif time.monotonic() - self.login_attempts.get(self.username, 0) < LOGIN_DELAY:
             await self._write_bytes(RES_LOGIN_DELAY)
-        elif await self.cfg.validate_credentials(self.username, password):
-            self.is_authenticated = True
-            await self._load_mailbox_list()
-            await self._write_bytes(RES_AUTHENTICATED)
         else:
-            self.last_login_timestamp = int(time.time())
-            await self._write_bytes(RES_INVALID_CREDS)
+            now = time.monotonic()
+            expired_users = [
+                user
+                for user, attempted_at in self.login_attempts.items()
+                if now - attempted_at >= LOGIN_DELAY
+            ]
+            for user in expired_users:
+                self.login_attempts.pop(user)
+            self.login_attempts[self.username] = now
+            if await self.cfg.validate_credentials(self.username, password):
+                self.login_attempts.pop(self.username, None)
+                await self._load_mailbox_list()
+                self.is_authenticated = True
+                await self._write_bytes(RES_AUTHENTICATED)
+            else:
+                await self._write_bytes(RES_INVALID_CREDS)
 
     async def _handle_top_cmd(  # pylint: disable=too-many-branches
         self,
         item_id: PositiveInt,
-        lines: PositiveInt,
+        lines: int,
     ) -> None:
         self._assert_authenticated()
         assert self.username is not None
@@ -205,40 +266,19 @@ class PopSession:  # pylint: disable=too-few-public-methods,too-many-instance-at
         if item is None:
             await self._write_bytes(RES_NO_SUCH_ITEM)
         else:
-            keep_reading = True
             reader = await self.cfg.get_item_reader(self.username, item.uid)
-            last_chunk_part = b""
             in_body = False
-            while keep_reading:
-                chunk = await reader.read(BUFFER_SIZE)
-                if len(chunk) < BUFFER_SIZE:
-                    if not chunk.endswith(b"\r\n"):  # pylint: disable=too-many-branches
-                        chunk += b"\r\n"
-                    if not chunk.endswith(b".\r\n"):
-                        chunk += b".\r\n"
-                    keep_reading = False
-                chunk_lines = (
-                    chunk.replace(b"\r\n", b"\n").replace(b"\r", b"\n").split(b"\n")
-                )
-                chunk_lines[0] = last_chunk_part + chunk_lines[0]
-                last_chunk_part = chunk_lines.pop()
-                out_chunk = b""
-                for line in chunk_lines:
-                    if not in_body:
-                        if line == b"":
-                            in_body = True
-                        out_chunk += line + b"\r\n"
-                    elif lines > 0:
-                        out_chunk += line + b"\r\n"
+            with tempfile.SpooledTemporaryFile(max_size=BUFFER_SIZE * 1024) as response:
+                async for line in self._iter_message_lines(reader):
+                    if in_body:
+                        if lines == 0:
+                            break
                         lines -= 1
-                    else:
-                        if not out_chunk.endswith(b"\r\n"):
-                            out_chunk += b"\r\n"
-                        if not out_chunk.endswith(b".\r\n"):
-                            out_chunk += b".\r\n"
-                        keep_reading = False
-                        break
-                await self._write_bytes(out_chunk)
+                    elif line == b"":
+                        in_body = True
+                    response.write(self._encode_message_line(line))
+                response.write(b".\r\n")
+                await self._write_staged_response(response)
 
     async def _handle_cmd(  # pylint: disable=too-many-branches
         self, cmd: PopCmd
@@ -257,8 +297,10 @@ class PopSession:  # pylint: disable=too-few-public-methods,too-many-instance-at
             case DeleCmd():
                 await self._handle_dele_cmd(cmd.id)
             case NoopCmd():
+                self._assert_authenticated()
                 await self._write_bytes(RES_NOOP)
             case RsetCmd():
+                self._assert_authenticated()
                 self.deleted_uids = []
                 await self._write_bytes(RES_RESET)
             case UserCmd():
@@ -287,8 +329,9 @@ class PopSession:  # pylint: disable=too-few-public-methods,too-many-instance-at
         except ValidationError:
             await self._write_bytes(RES_SYNTAX_ERR)
             return True
-        except Exception as exc:
-            raise exc
+        except Exception:
+            await self._write_bytes(RES_INTERNAL_ERROR)
+            return True
 
     async def handle_chunk(self, chunk: bytes) -> bool:
         """Handles a chunk (.i.e arbitrary fraction or number of lines)."""
