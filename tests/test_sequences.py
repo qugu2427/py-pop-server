@@ -25,6 +25,7 @@ from pypop.types import (
     RES_LINE_TOO_LONG,
     RES_LOGIN_DELAY,
     RES_MARK_DELETE,
+    RES_MESSAGE_TOO_LARGE,
     RES_NO_SUCH_ITEM,
     RES_NOOP,
     RES_READY,
@@ -96,6 +97,12 @@ def get_uid(email: bytes) -> str:
     """Test get uid"""
 
     return hashlib.md5(email).hexdigest()
+
+
+def test_empty_message_is_valid_list_item() -> None:
+    """POP3 message sizes may be zero octets."""
+
+    assert PopListItem(uid="empty", size=0).size == 0
 
 
 async def validate_credentials(
@@ -525,7 +532,8 @@ async def test_unexpected_callback_failure_gets_error_response():
     writer = BufferWriter()
     session = PopSession(writer, cfg)
     session.username = "admin"
-    assert await session._handle_line(b"PASS password")
+    with pytest.raises(RuntimeError, match="authentication backend unavailable"):
+        await session._handle_line(b"PASS password")
     assert bytes(writer.data) == RES_INTERNAL_ERROR
 
 
@@ -600,8 +608,46 @@ async def test_midstream_reader_failure_has_no_partial_response(command: bytes):
     session.username = "admin"
     session.is_authenticated = True
     session.mailbox_list = [PopListItem(uid="uid", size=1)]
-    assert await session._handle_line(command)
+    with pytest.raises(RuntimeError, match="message backend unavailable"):
+        await session._handle_line(command)
     assert bytes(writer.data) == RES_INTERNAL_ERROR
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("command", [b"RETR 1", b"TOP 1 1"])
+async def test_declared_oversized_message_is_rejected(command: bytes):
+    """Mailbox metadata is checked before opening an oversized message."""
+
+    writer = BufferWriter()
+    session = PopSession(writer, _test_config().model_copy(update={"max_message_size": 4}))
+    session.username = "admin"
+    session.is_authenticated = True
+    session.mailbox_list = [PopListItem(uid="uid", size=5)]
+    assert await session._handle_line(command)
+    assert bytes(writer.data) == RES_MESSAGE_TOO_LARGE
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("command", [b"RETR 1", b"TOP 1 1"])
+async def test_reader_cannot_exceed_message_size_limit(command: bytes):
+    """The actual reader output cannot bypass inaccurate mailbox metadata."""
+
+    async def oversized_reader(
+        username: str,
+        uid: str,  # pylint: disable=unused-argument
+    ) -> PopReader:
+        return MailReader(b"12345")
+
+    cfg = _test_config().model_copy(
+        update={"get_item_reader": oversized_reader, "max_message_size": 4}
+    )
+    writer = BufferWriter()
+    session = PopSession(writer, cfg)
+    session.username = "admin"
+    session.is_authenticated = True
+    session.mailbox_list = [PopListItem(uid="uid", size=1)]
+    assert await session._handle_line(command)
+    assert bytes(writer.data) == RES_MESSAGE_TOO_LARGE
 
 
 def _test_config(

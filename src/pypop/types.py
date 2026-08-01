@@ -1,5 +1,6 @@
 """Contains externally useful types for pypop."""
 
+import ssl
 import typing as t
 
 import pydantic as pd
@@ -7,6 +8,7 @@ import pydantic as pd
 BUFFER_SIZE = 1024
 COMMAND_TIMEOUT = 300
 MAX_LINE_LENGTH = 1024
+MAX_MESSAGE_SIZE = 64 * 1024 * 1024
 
 LOGIN_DELAY = 5
 
@@ -24,6 +26,7 @@ RES_INTERNAL_ERROR = b"-ERR Internal server error\r\n"
 RES_INVALID_CREDS = b"-ERR Invalid credentials\r\n"
 RES_LOGIN_DELAY = f"-ERR Wait {LOGIN_DELAY} seconds between attempts\r\n".encode()
 RES_LINE_TOO_LONG = b"-ERR Line too long\r\n"
+RES_MESSAGE_TOO_LARGE = b"-ERR Message too large\r\n"
 RES_MARK_DELETE = b"+OK Marked for deletion\r\n"
 RES_NO_SUCH_ITEM = b"-ERR No such item\r\n"
 RES_NO_USER = b"-ERR No user provided\r\n"
@@ -49,11 +52,11 @@ class PopListItem(pd.BaseModel):
 
     Attributes:
         uid (str): Unique id for a single item of mail.
-        size (PositiveInt): Size, in bytes, of item.
+        size (NonNegativeInt): Size, in bytes, of item.
     """
 
     uid: str
-    size: pd.PositiveInt
+    size: pd.NonNegativeInt
 
 
 class PopReader:  # pylint: disable=too-few-public-methods
@@ -76,6 +79,8 @@ class PopConfig(pd.BaseModel):
         host: serve on host
         port: serve on port
         command_timeout: seconds to wait for client command data
+        tls_context: optional server-side TLS context
+        max_message_size: maximum bytes read while preparing RETR or TOP
 
         validate_credentials: fn to validate credentials
         get_mailbox_list: fn to get mailbox list
@@ -89,6 +94,8 @@ class PopConfig(pd.BaseModel):
     host: str
     port: int
     command_timeout: pd.PositiveFloat = COMMAND_TIMEOUT
+    tls_context: ssl.SSLContext | None = None
+    max_message_size: pd.PositiveInt = MAX_MESSAGE_SIZE
 
     validate_credentials: t.Callable[[str, str], t.Awaitable[bool]]
     get_mailbox_list: t.Callable[[str], t.Awaitable[t.Sequence[PopListItem]]]
@@ -97,3 +104,5 @@ class PopConfig(pd.BaseModel):
 
     debug: bool = False
     debug_fn: t.Callable[[str], t.Any] = print
+
+    model_config = pd.ConfigDict(arbitrary_types_allowed=True)

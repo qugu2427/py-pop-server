@@ -36,6 +36,7 @@ from pypop.types import (
     RES_LINE_TOO_LONG,
     RES_LOGIN_DELAY,
     RES_MARK_DELETE,
+    RES_MESSAGE_TOO_LARGE,
     RES_NO_SUCH_ITEM,
     RES_NO_USER,
     RES_NOOP,
@@ -106,10 +107,14 @@ class PopSession:  # pylint: disable=too-few-public-methods,too-many-instance-at
 
         line = bytearray()
         pending_cr = False
+        bytes_read = 0
         while True:
             chunk = await reader.read(BUFFER_SIZE)
             if not chunk:
                 break
+            bytes_read += len(chunk)
+            if bytes_read > self.cfg.max_message_size:
+                raise PopError(RES_MESSAGE_TOO_LARGE)
             for byte in chunk:
                 if pending_cr:
                     yield bytes(line)
@@ -168,6 +173,8 @@ class PopSession:  # pylint: disable=too-few-public-methods,too-many-instance-at
         item = self._get_item(item_id)
         if item is None:
             await self._write_bytes(RES_NO_SUCH_ITEM)
+        elif item.size > self.cfg.max_message_size:
+            await self._write_bytes(RES_MESSAGE_TOO_LARGE)
         else:
             reader = await self.cfg.get_item_reader(self.username, item.uid)
             with tempfile.SpooledTemporaryFile(max_size=BUFFER_SIZE * 1024) as response:
@@ -265,6 +272,8 @@ class PopSession:  # pylint: disable=too-few-public-methods,too-many-instance-at
         item = self._get_item(item_id)
         if item is None:
             await self._write_bytes(RES_NO_SUCH_ITEM)
+        elif item.size > self.cfg.max_message_size:
+            await self._write_bytes(RES_MESSAGE_TOO_LARGE)
         else:
             reader = await self.cfg.get_item_reader(self.username, item.uid)
             in_body = False
@@ -331,7 +340,7 @@ class PopSession:  # pylint: disable=too-few-public-methods,too-many-instance-at
             return True
         except Exception:
             await self._write_bytes(RES_INTERNAL_ERROR)
-            return True
+            raise
 
     async def handle_chunk(self, chunk: bytes) -> bool:
         """Handles a chunk (.i.e arbitrary fraction or number of lines)."""

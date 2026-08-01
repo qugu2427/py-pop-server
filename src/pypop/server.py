@@ -89,7 +89,12 @@ def get_client_handler(cfg: PopConfig):
 async def listen(cfg: PopConfig):
     """Listen and serve POP3"""
 
-    server = await aio.start_server(get_client_handler(cfg), cfg.host, cfg.port)
+    server = await aio.start_server(
+        get_client_handler(cfg),
+        cfg.host,
+        cfg.port,
+        ssl=cfg.tls_context,
+    )
 
     addrs = ", ".join(str(sock.getsockname()) for sock in server.sockets)
     print(f"Listening on {addrs}")
